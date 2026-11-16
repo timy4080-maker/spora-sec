@@ -1,0 +1,74 @@
+{
+  "first_reply": {
+    "application": 124,
+    "base64": 355,
+    "direction": 1,
+    "envelope": 266,
+    "exchange": 0,
+    "kind": 2,
+    "pq": 4,
+    "signal": 185
+  },
+  "initial": {
+    "application": 124,
+    "base64": 2606,
+    "direction": 0,
+    "envelope": 1954,
+    "exchange": 0,
+    "kind": 3,
+    "pq": 37,
+    "signal": 1873
+  },
+  "invitation_json_bytes": 7679,
+  "kem_public_with_signature_bytes": 1633,
+  "library_only_reestablishment": {
+    "application": 126,
+    "base64": 2606,
+    "envelope": 1954,
+    "kind": 3,
+    "signal": 1873
+  },
+  "libsignal_commit": "8be00c282001caa3585d18de0f044c6d500348ab",
+  "max_pq_bytes": 37,
+  "max_pq_sample": {
+    "application": 126,
+    "base64": 399,
+    "direction": 1,
+    "envelope": 299,
+    "exchange": 511,
+    "kind": 2,
+    "pq": 37,
+    "signal": 218
+  },
+  "new_device_initial": {
+    "application": 126,
+    "base64": 2606,
+    "envelope": 1954,
+    "kind": 3,
+    "signal": 1873
+  },
+  "normal_max_envelope": 299,
+  "normal_min_envelope": 266,
+  "note": "Observed sample, not protocol maximum. Re-establishment probe is library-only, not a client restore API (SEC-02).",
+  "one_time_ec_public_bytes": 33,
+  "plaintext_text_bytes": 32,
+  "processing_receipt": {
+    "application": 113,
+    "base64": 399,
+    "envelope": 299,
+    "kind": 2,
+    "signal": 218
+  },
+  "radio_4096_exceeded_samples": 0,
+  "samples": 1024,
+  "signed_ec_with_signature_bytes": 97,
+  "suite": "SPORA_LIBSIGNAL_0_108_V1",
+  "total_pq_bytes_in_sample": 33070,
+  "unacknowledged_second": {
+    "application": 126,
+    "base64": 2606,
+    "envelope": 1954,
+    "kind": 3,
+    "signal": 1873
+  }
+}

@@ -1,0 +1,7 @@
+/target/
+/.local/
+*.db
+*.db-wal
+*.db-shm
+*.kek
+*.invitation.json

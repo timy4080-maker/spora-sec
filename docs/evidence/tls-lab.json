@@ -1,0 +1,37 @@
+{
+  "scenario": "three client profiles, two independent TLS Relay processes",
+  "transport": "verified private CA, IP SAN 127.0.0.1",
+  "artificial_messages": true,
+  "encryption": "SPORA_LIBSIGNAL_0_108_V1",
+  "checks": [
+    "recipient offline during send",
+    "one Relay killed during delivery",
+    "retry after restart",
+    "request idempotency",
+    "four independent route envelopes",
+    "local persistence before consume",
+    "both Relays restarted after consume",
+    "apply after server copies removed",
+    "two authenticated processing receipts"
+  ],
+  "alice": {
+    "suite": "SPORA_LIBSIGNAL_0_108_V1",
+    "external_review": "PENDING: M2 not accepted",
+    "revision": 24,
+    "test_key": true,
+    "sessions": 2,
+    "ec_prekeys": 2,
+    "kem_prekeys": 2,
+    "pending_outbox": 0,
+    "relay_stored": 4,
+    "pending_inbox": 0,
+    "quarantined": 0,
+    "pending_consumption": 0,
+    "pending_receipts": 0,
+    "message_count": 1,
+    "processed_receipts": 2,
+    "attention_required": 0
+  },
+  "external_specialist_review": "PENDING",
+  "public_internet_deployment": false
+}

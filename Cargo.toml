@@ -1,0 +1,33 @@
+[package]
+name = "spora-sec"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100"
+license = "AGPL-3.0-only"
+publish = false
+
+[dependencies]
+spora-core = { git = "https://github.com/timy4080-maker/spora-client.git", rev = "60804711d61290a0b973435bb776d330db313438" }
+libsignal-protocol = { git = "https://github.com/signalapp/libsignal.git", rev = "8be00c282001caa3585d18de0f044c6d500348ab" }
+async-trait = "0.1"
+futures = "0.3"
+rand = "0.9.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+rusqlite = { version = "0.42", features = ["bundled"] }
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+chacha20poly1305 = "0.10"
+zeroize = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+clap = { version = "4", features = ["derive"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Security_Cryptography", "Win32_Foundation"] }
+
+[dev-dependencies]
+tempfile = "3"
+spora-relay = { git = "https://github.com/timy4080-maker/spora-relay.git", rev = "97d5b5c02ebc719f86d9d192aa42e1a25c913797" }
