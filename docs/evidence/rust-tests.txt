@@ -1,5 +1,5 @@
    Compiling spora-sec v0.1.0 (C:\projects\spora-sec)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.87s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.35s
      Running unittests src\lib.rs (target\debug\build\spora-sec/6dfc38cc049f640d\out\spora_sec-6dfc38cc049f640d.exe)
 
 running 8 tests
@@ -12,7 +12,7 @@ test client::tests::crypto_valid_application_invalid_commits_ratchet_and_prekey_
 test client::tests::wrong_receipt_and_application_device_binding_do_not_reserve_message_id ... ok
 test crypto_tests::measurements_real_signal_and_pq_updates ... ok
 
-test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.76s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.65s
 
      Running unittests src\main.rs (target\debug\build\spora-sec/5e1d7d0e406b73ea\out\spora_sec-5e1d7d0e406b73ea.exe)
 
@@ -22,19 +22,21 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
      Running tests\integration.rs (target\debug\build\spora-sec/d48377f88443f1d9\out\integration-d48377f88443f1d9.exe)
 
-running 10 tests
+running 12 tests
 test windows_dpapi_key_round_trip_and_refusal_of_overwrite ... ok
 test key_missing_key_swapped_corrupt_database_never_reinitialize ... ok
 test tampered_invitation_wrong_fingerprint_wrong_device_and_suite_fail_closed ... ok
-test database_and_wal_do_not_contain_plaintext_or_private_key ... ok
+test database_and_wal_do_not_contain_message_plaintext ... ok
 test stale_plan_cannot_commit_even_after_read_only_trust_change ... ok
 test tampered_ciphertext_is_durable_quarantine_without_ratchet_or_receipt ... ok
 test actual_process_crash_before_and_after_atomic_commit ... ok
 test lost_responses_network_outage_and_retry_keep_exact_ciphertext ... ok
+test conflicting_replay_blocks_only_its_source_without_losing_other_route ... ok
 test reverse_delivery_and_duplicate_requests_preserve_messages ... ok
+test retry_after_and_budget_are_persisted_and_require_explicit_operator_retry ... ok
 test offline_two_devices_two_relays_restarts_and_end_to_end_receipts ... ok
 
-test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.70s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.56s
 
    Doc-tests spora_sec
 

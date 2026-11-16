@@ -382,31 +382,35 @@ impl Client {
                             local.cursor == source.cursor,
                             "source cursor changed; retry fetch"
                         );
+                        if page.items.iter().any(|entry| {
+                            let key =
+                                inbox_key(&source.source.queue_id, &entry.receipt.delivery_id);
+                            s.inbox.get(&key).is_some_and(|old| {
+                                old.entry.receipt != entry.receipt
+                                    || old.entry.envelope_b64url != entry.envelope_b64url
+                            })
+                        }) {
+                            local.attention = Some("CONFLICTING_REPLAY".into());
+                            return Ok(());
+                        }
                         local.cursor = page.next_after.parse()?;
                         local.failures = 0;
                         local.next_attempt_ms = 0;
                         for entry in page.items {
                             let key =
                                 inbox_key(&source.source.queue_id, &entry.receipt.delivery_id);
-                            if let Some(old) = s.inbox.get(&key) {
-                                ensure!(
-                                    old.entry.receipt == entry.receipt
-                                        && old.entry.envelope_b64url == entry.envelope_b64url,
-                                    "conflicting replay"
-                                );
-                            } else {
-                                s.inbox.insert(
-                                    key,
-                                    Incoming {
-                                        source: source.source.queue_id.clone(),
-                                        entry,
-                                        status: "pending".into(),
-                                        consumed: false,
-                                        next_consume_ms: 0,
-                                        attempts: 0,
-                                        consume_attention: None,
-                                    },
-                                );
+                            if let std::collections::btree_map::Entry::Vacant(v) =
+                                s.inbox.entry(key)
+                            {
+                                v.insert(Incoming {
+                                    source: source.source.queue_id.clone(),
+                                    entry,
+                                    status: "pending".into(),
+                                    consumed: false,
+                                    next_consume_ms: 0,
+                                    attempts: 0,
+                                    consume_attention: None,
+                                });
                                 count += 1;
                             }
                         }

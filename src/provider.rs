@@ -248,6 +248,10 @@ impl State {
             )?),
             3 => {
                 let m = PreKeySignalMessage::try_from(packet.ciphertext.as_slice())?;
+                ensure!(
+                    m.registration_id() == b.registration,
+                    "sender registration binding mismatch"
+                );
                 let id = m
                     .pre_key_id()
                     .ok_or_else(|| anyhow::anyhow!("one-time EC prekey required"))?;

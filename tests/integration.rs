@@ -327,7 +327,7 @@ fn actual_process_crash_before_and_after_atomic_commit() -> Result<()> {
 }
 
 #[test]
-fn database_and_wal_do_not_contain_plaintext_or_private_key() -> Result<()> {
+fn database_and_wal_do_not_contain_message_plaintext() -> Result<()> {
     let lab = Lab::new()?;
     let mut a = lab.client("a", 1)?;
     let mut b = lab.client("b", 1)?;
@@ -403,5 +403,138 @@ fn reverse_delivery_and_duplicate_requests_preserve_messages() -> Result<()> {
     assert_eq!(b.apply(lab.now)?, 5);
     assert_eq!(b.status()?.quarantined, 0);
     assert_eq!(b.messages()?.len(), 5);
+    Ok(())
+}
+
+#[test]
+fn conflicting_replay_blocks_only_its_source_without_losing_other_route() -> Result<()> {
+    struct Conflicting<'a> {
+        lab: &'a Lab,
+        service: String,
+        old: spora_sec::Outgoing,
+    }
+    impl Transport for Conflicting<'_> {
+        fn put(
+            &self,
+            r: &Route,
+            id: &str,
+            p: &MessagePut,
+            n: i64,
+        ) -> spora_core::Result<StorageReceipt> {
+            self.lab.put(r, id, p, n)
+        }
+        fn consume(&self, s: &Source, id: &str, n: i64) -> spora_core::Result<()> {
+            self.lab.consume(s, id, n)
+        }
+        fn fetch(
+            &self,
+            s: &Source,
+            after: u64,
+            limit: usize,
+            n: i64,
+        ) -> spora_core::Result<MessagePage> {
+            if s.service_id != self.service {
+                return self.lab.fetch(s, after, limit, n);
+            }
+            let receipt = StorageReceipt {
+                service_id: s.service_id.clone(),
+                queue_id: s.queue_id.clone(),
+                generation: s.generation.clone(),
+                delivery_id: self.old.delivery_id.clone(),
+                seq: (after + 1).to_string(),
+                envelope_sha256: self.old.put.envelope_sha256.clone(),
+                accepted_at_ms: n,
+                expires_at_ms: self.old.put.expires_at_ms,
+            };
+            Ok(MessagePage {
+                queue_id: s.queue_id.clone(),
+                generation: s.generation.clone(),
+                next_after: (after + 1).to_string(),
+                has_more: false,
+                items: vec![PageEntry {
+                    receipt,
+                    envelope_b64url: self.old.put.envelope_b64url.clone(),
+                }],
+            })
+        }
+    }
+    let lab = Lab::new()?;
+    let mut a = lab.client("a", 2)?;
+    let mut b = lab.client("b", 2)?;
+    lab.pair(&mut a, &mut b, &new_id())?;
+    a.send(&new_id(), &[b.device()?.id], "first", lab.now)?;
+    a.dispatch(&lab, lab.now)?;
+    assert_eq!(b.fetch(&lab, lab.now)?, 2);
+    b.consume(&lab, lab.now)?;
+    b.apply(lab.now)?;
+    let old = a.outgoing()?.remove(0);
+    let service = old.route.route.service_id.clone();
+    a.send(&new_id(), &[b.device()?.id], "second", lab.now)?;
+    a.dispatch(&lab, lab.now)?;
+    assert_eq!(
+        b.fetch(
+            &Conflicting {
+                lab: &lab,
+                service,
+                old
+            },
+            lab.now
+        )?,
+        1
+    );
+    assert_eq!(b.status()?.attention_required, 1);
+    assert_eq!(b.apply(lab.now)?, 1);
+    assert_eq!(b.messages()?.len(), 2);
+    Ok(())
+}
+
+#[test]
+fn retry_after_and_budget_are_persisted_and_require_explicit_operator_retry() -> Result<()> {
+    struct Busy(Cell<u32>);
+    impl Transport for Busy {
+        fn put(
+            &self,
+            _: &Route,
+            _: &str,
+            _: &MessagePut,
+            _: i64,
+        ) -> spora_core::Result<StorageReceipt> {
+            self.0.set(self.0.get() + 1);
+            Err(Error::RetryAfter {
+                reason: RetryReason::Unavailable,
+                retry_after_ms: 45000,
+            })
+        }
+        fn fetch(&self, _: &Source, _: u64, _: usize, _: i64) -> spora_core::Result<MessagePage> {
+            unreachable!()
+        }
+        fn consume(&self, _: &Source, _: &str, _: i64) -> spora_core::Result<()> {
+            unreachable!()
+        }
+    }
+    let lab = Lab::new()?;
+    let mut a = lab.client("a", 1)?;
+    let mut b = lab.client("b", 1)?;
+    lab.pair(&mut a, &mut b, &new_id())?;
+    a.send(&new_id(), &[b.device()?.id], "busy", lab.now)?;
+    let t = Busy(Cell::new(0));
+    a.dispatch(&t, lab.now)?;
+    assert!(a.outgoing()?[0].next_attempt_ms >= lab.now + 45000);
+    drop(a);
+    let mut a = lab.reopen("a")?;
+    a.dispatch(&t, lab.now + 44999)?;
+    assert_eq!(t.0.get(), 1);
+    for attempt in 1..16 {
+        a.dispatch(&t, lab.now + attempt * 300000)?;
+    }
+    assert_eq!(t.0.get(), 16);
+    assert_eq!(a.status()?.attention_required, 1);
+    drop(a);
+    let mut a = lab.reopen("a")?;
+    a.dispatch(&t, lab.now + 17 * 300000)?;
+    assert_eq!(t.0.get(), 16);
+    a.retry_attention()?;
+    a.dispatch(&t, lab.now + 18 * 300000)?;
+    assert_eq!(t.0.get(), 17);
     Ok(())
 }
