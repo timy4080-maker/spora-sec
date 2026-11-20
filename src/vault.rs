@@ -125,16 +125,37 @@ pub fn open_key(path: &Path, allow_test_key: bool) -> Result<(Zeroizing<[u8; 32]
 }
 #[cfg(target_os = "linux")]
 fn protect(bytes: &[u8], decrypt: bool) -> Result<Vec<u8>> {
-    use std::{io::Read, os::unix::fs::PermissionsExt};
+    use std::{io::Read, os::unix::fs::MetadataExt};
     let dir =
         std::path::PathBuf::from(std::env::var_os("CREDENTIALS_DIRECTORY").ok_or_else(|| {
             anyhow::anyhow!("Linux OS credential spora-wrapping-key is required")
         })?);
-    ensure!(dir.is_absolute(), "invalid OS credential directory");
-    let mut file = std::fs::File::open(dir.join("spora-wrapping-key"))?;
+    // The system service manager grants the service UID read access via a named
+    // ACL. Its mask can appear as group-read in stat even with an empty group ACL.
+    let root = Path::new("/run/credentials");
+    ensure!(
+        dir.parent() == Some(root) && std::fs::canonicalize(&dir)? == dir,
+        "expected a systemd system service credential directory"
+    );
+    let root_meta = std::fs::symlink_metadata(root)?;
+    let dir_meta = std::fs::symlink_metadata(&dir)?;
+    ensure!(
+        root_meta.is_dir()
+            && root_meta.uid() == 0
+            && root_meta.mode() & 0o022 == 0
+            && dir_meta.is_dir()
+            && dir_meta.mode() & 0o027 == 0,
+        "unprotected OS credential directory"
+    );
+    let path = dir.join("spora-wrapping-key");
+    ensure!(
+        std::fs::symlink_metadata(&path)?.is_file(),
+        "invalid OS credential file"
+    );
+    let mut file = std::fs::File::open(path)?;
     let meta = file.metadata()?;
     ensure!(
-        meta.is_file() && meta.permissions().mode() & 0o077 == 0 && meta.len() == 32,
+        meta.is_file() && matches!(meta.mode() & 0o777, 0o400 | 0o440) && meta.len() == 32,
         "OS credential must be a private 32-byte secret"
     );
     let mut master = Zeroizing::new([0u8; 32]);
@@ -148,7 +169,7 @@ fn protect(bytes: &[u8], decrypt: bool) -> Result<Vec<u8>> {
 }
 #[cfg(not(any(windows, target_os = "linux")))]
 fn protect(_: &[u8], _: bool) -> Result<Vec<u8>> {
-    bail!("OS keystore implemented only on Windows; test keys require explicit opt-in")
+    bail!("no OS keystore on this platform; test keys require explicit opt-in")
 }
 
 #[cfg(windows)]
