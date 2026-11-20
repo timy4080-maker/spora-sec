@@ -38,6 +38,8 @@ enum Command {
         request: String,
         #[arg(long)]
         for_fingerprint: String,
+        #[arg(long, value_delimiter = ',')]
+        queues: Vec<String>,
         #[arg(long)]
         output: PathBuf,
     },
@@ -58,12 +60,23 @@ enum Command {
         text: String,
     },
     Dispatch,
-    Fetch,
+    Fetch {
+        #[arg(long, default_value_t = 32)]
+        limit: usize,
+    },
     Consume,
     Apply,
     Receipts,
     Tick,
     RetryAttention,
+    ResumeSource {
+        #[arg(long)]
+        queue: String,
+    },
+    Gc {
+        #[arg(long)]
+        prune_expired_history: bool,
+    },
 }
 fn output(value: impl serde::Serialize) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(&value)?);
@@ -89,15 +102,26 @@ fn run(args: Args) -> Result<()> {
         Command::Identity => output(
             serde_json::json!({"device":c.device()?,"fingerprint":c.device()?.fingerprint()}),
         ),
+        Command::ResumeSource { queue } => {
+            c.resume_source(&queue)?;
+            output(c.queues()?)
+        }
+        Command::Gc {
+            prune_expired_history,
+        } => {
+            c.gc(now, prune_expired_history)?;
+            output(c.status()?)
+        }
         Command::Status => output(c.status()?),
         Command::Messages => output(c.messages()?),
         Command::Queues => output(c.queues()?),
         Command::Invite {
             request,
             for_fingerprint,
+            queues,
             output: path,
         } => {
-            let inv = c.invite(&request, &for_fingerprint, now)?;
+            let inv = c.invite_routes(&request, &for_fingerprint, now, &queues)?;
             // The transaction precedes file output. A lost output is safely re-exported
             // with the same request ID without allocating another prekey.
             let bytes = serde_json::to_vec_pretty(&inv)?;
@@ -163,7 +187,7 @@ fn run(args: Args) -> Result<()> {
                     output(queue)
                 }
                 Command::Dispatch => output(c.dispatch(&t, now)?),
-                Command::Fetch => output(c.fetch(&t, now)?),
+                Command::Fetch { limit } => output(c.fetch_limit(&t, now, limit)?),
                 Command::Consume => output(c.consume(&t, now)?),
                 Command::Tick => {
                     c.fetch(&t, now)?;

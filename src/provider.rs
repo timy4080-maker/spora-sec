@@ -1,16 +1,26 @@
 use crate::{SUITE, model::*, vault};
 use anyhow::{Result, bail, ensure};
 use libsignal_protocol::*;
-use rand::TryRngCore;
+
 use spora_core::{new_id, valid_id};
 use std::time::SystemTime;
 
 impl State {
+    #[cfg(test)]
     pub(crate) fn invite(
         &mut self,
         request: &str,
         for_fingerprint: &str,
         now: i64,
+    ) -> Result<Invitation> {
+        self.invite_routes(request, for_fingerprint, now, &[])
+    }
+    pub(crate) fn invite_routes(
+        &mut self,
+        request: &str,
+        for_fingerprint: &str,
+        now: i64,
+        queues: &[String],
     ) -> Result<Invitation> {
         ensure!(
             for_fingerprint.len() == 64 && for_fingerprint.bytes().all(|b| b.is_ascii_hexdigit()),
@@ -21,18 +31,52 @@ impl State {
                 inv.body.recipient_fingerprint == for_fingerprint,
                 "invitation request conflict"
             );
+            ensure!(
+                inv.version == 2,
+                "legacy invitation; use a new request and verify v2 fingerprints"
+            );
+            ensure!(
+                queues.is_empty()
+                    || queues
+                        .iter()
+                        .eq(inv.body.routes.iter().map(|s| &s.route.queue_id)),
+                "invitation request route conflict"
+            );
             return Ok(inv.clone());
         }
         ensure!(
             !self.sources.is_empty(),
             "create receiving queues before invitation"
         );
+        let selected = if queues.is_empty() {
+            self.sources.keys().cloned().collect()
+        } else {
+            queues.to_vec()
+        };
+        ensure!(
+            selected.len() <= 4
+                && selected
+                    .iter()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len()
+                    == selected.len(),
+            "select up to four distinct queues"
+        );
+        let routes = selected
+            .iter()
+            .map(|q| {
+                self.sources
+                    .get(q)
+                    .map(|s| s.secure.clone())
+                    .ok_or_else(|| anyhow::anyhow!("unknown queue"))
+            })
+            .collect::<Result<Vec<_>>>()?;
         let c = &mut self.crypto;
         let id = c.next_key;
         c.next_key = id
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("prekey allocation exhausted"))?;
-        let mut rng = rand::rngs::OsRng.unwrap_err();
+        let mut rng = crate::vault::os_rng();
         let identity = IdentityKeyPair::try_from(c.identity.pair.as_slice())?;
         let pre = KeyPair::generate(&mut rng);
         let signed = KeyPair::generate(&mut rng);
@@ -45,7 +89,7 @@ impl State {
             .calculate_signature(&kem.public_key.serialize(), &mut rng)?;
         c.prekeys
             .0
-            .insert(id, PreKeyRecord::new(id.into(), &pre).serialize()?);
+            .insert(id, PreKeyRecord::new(id.into(), &pre).serialize()?.into());
         c.signed.0.insert(
             id,
             SignedPreKeyRecord::new(
@@ -54,7 +98,8 @@ impl State {
                 &signed,
                 &signed_sig,
             )
-            .serialize()?,
+            .serialize()?
+            .into(),
         );
         c.kyber.0.insert(
             id,
@@ -64,10 +109,12 @@ impl State {
                 &kem,
                 &kem_sig,
             )
-            .serialize()?,
+            .serialize()?
+            .into(),
         );
         c.owners.insert(id, for_fingerprint.into());
         let mut inv = Invitation {
+            version: 2,
             body: InvitationBody {
                 suite: SUITE.into(),
                 invitation_id: new_id(),
@@ -81,7 +128,7 @@ impl State {
                 signed_signature: signed_sig.to_vec(),
                 kem_prekey: kem.public_key.serialize().to_vec(),
                 kem_signature: kem_sig.to_vec(),
-                routes: self.sources.values().map(|s| s.secure.clone()).collect(),
+                routes,
             },
             signature: vec![],
         };
@@ -99,6 +146,10 @@ impl State {
         conversation: &str,
         now: i64,
     ) -> Result<String> {
+        ensure!(
+            invitation.version == 2,
+            "unsupported invitation version; verify v2 fingerprints"
+        );
         let b = &invitation.body;
         ensure!(b.suite == SUITE, "unsupported invitation suite");
         ensure!(
@@ -196,7 +247,7 @@ impl State {
         let remote = b.device.address()?;
         let local = self.device.address()?;
         let c = &mut self.crypto;
-        let mut rng = rand::rngs::OsRng.unwrap_err();
+        let mut rng = crate::vault::os_rng();
         futures::executor::block_on(async {
             if !c.sessions.0.contains_key(&remote.to_string()) {
                 ensure!(
@@ -271,8 +322,8 @@ impl State {
             }
             _ => bail!("unsupported Signal message type"),
         };
-        let c = &mut self.crypto;
-        let mut rng = rand::rngs::OsRng.unwrap_err();
+        let mut c = self.crypto.clone();
+        let mut rng = crate::vault::os_rng();
         let plain = futures::executor::block_on(message_decrypt(
             &message,
             &b.device.address()?,
@@ -284,6 +335,7 @@ impl State {
             &mut c.kyber,
             &mut rng,
         ))?;
+        self.crypto = c;
         Ok((packet.from, plain))
     }
     pub(crate) fn add_source(&mut self, service: &str, endpoint: &str) -> Result<String> {

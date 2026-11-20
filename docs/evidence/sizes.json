@@ -19,7 +19,7 @@
     "pq": 37,
     "signal": 1873
   },
-  "invitation_json_bytes": 7679,
+  "invitation_json_bytes": 7696,
   "kem_public_with_signature_bytes": 1633,
   "library_only_reestablishment": {
     "application": 126,

@@ -17,7 +17,7 @@
   "alice": {
     "suite": "SPORA_LIBSIGNAL_0_108_V1",
     "external_review": "PENDING: M2 not accepted",
-    "revision": 24,
+    "revision": 23,
     "test_key": true,
     "sessions": 2,
     "ec_prekeys": 2,

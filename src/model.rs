@@ -14,6 +14,23 @@ pub struct Device {
 }
 impl Device {
     pub fn fingerprint(&self) -> String {
+        let mut encoder = minicbor::Encoder::new(Vec::new());
+        encoder
+            .array(5)
+            .unwrap()
+            .str("spora/fingerprint/v2")
+            .unwrap()
+            .str(SUITE)
+            .unwrap()
+            .str(&self.id)
+            .unwrap()
+            .str(&self.generation)
+            .unwrap()
+            .bytes(&self.identity)
+            .unwrap();
+        digest(&encoder.into_writer())
+    }
+    pub(crate) fn legacy_fingerprint(&self) -> String {
         digest(
             &serde_json::to_vec(&(
                 SUITE,
@@ -91,12 +108,51 @@ pub struct InvitationBody {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Invitation {
+    #[serde(default)]
+    pub version: u8,
     pub body: InvitationBody,
     pub signature: Vec<u8>,
 }
 impl Invitation {
     pub(crate) fn signed_bytes(&self) -> Result<Vec<u8>> {
-        Ok(serde_json::to_vec(&(SUITE, "invitation", &self.body))?)
+        let b = &self.body;
+        let mut e = minicbor::Encoder::new(Vec::new());
+        e.array(15)?
+            .str("spora/invitation/v2")?
+            .str(&b.suite)?
+            .str(&b.invitation_id)?
+            .array(3)?
+            .str(&b.device.id)?
+            .str(&b.device.generation)?
+            .bytes(&b.device.identity)?
+            .str(&b.recipient_fingerprint)?
+            .i64(b.expires_ms)?
+            .u32(b.registration)?
+            .u32(b.key_id)?
+            .bytes(&b.prekey)?
+            .bytes(&b.signed_prekey)?
+            .bytes(&b.signed_signature)?
+            .bytes(&b.kem_prekey)?
+            .bytes(&b.kem_signature)?
+            .u32(2)?
+            .array(b.routes.len() as u64)?;
+        for secure in &b.routes {
+            let r = &secure.route;
+            e.array(12)?
+                .str(&r.route_id)?
+                .u64(r.version)?
+                .str(&r.destination_device)?
+                .str(&r.device_generation)?
+                .str(&r.service_id)?
+                .str(&r.endpoint)?
+                .str(&r.queue_id)?
+                .str(&r.generation)?
+                .str(&r.write_token)?
+                .str(&r.operator_id)?
+                .str(&r.failure_domain)?
+                .bytes(&secure.wrapping_key)?;
+        }
+        Ok(e.into_writer())
     }
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -122,6 +178,8 @@ pub struct Outgoing {
     pub route: SecureRoute,
     pub put: MessagePut,
     pub relay_stored: bool,
+    #[serde(default)]
+    pub replay_pending: bool,
     pub next_attempt_ms: i64,
     pub attempts: u32,
     pub attention: Option<String>,
@@ -157,7 +215,16 @@ pub(crate) struct State {
     pub sources: BTreeMap<String, LocalSource>,
     pub peers: BTreeMap<String, Peer>,
     pub invitations: BTreeMap<String, Invitation>,
+    // Legacy high watermark is the floor for streams first seen after upgrade.
     pub next_sequence: u64,
+    #[serde(default)]
+    pub streams: BTreeMap<String, u64>,
+    #[serde(default)]
+    pub retention: BTreeMap<String, i64>,
+    #[serde(default)]
+    pub receipt_cache: BTreeMap<String, String>,
+    #[serde(default)]
+    pub replay_after: i64,
     pub requests: BTreeMap<String, (String, String)>,
     pub messages: BTreeMap<String, LocalMessage>,
     pub outbox: BTreeMap<String, Outgoing>,
@@ -185,6 +252,10 @@ impl State {
             peers: BTreeMap::new(),
             invitations: BTreeMap::new(),
             next_sequence: 0,
+            streams: BTreeMap::new(),
+            retention: BTreeMap::new(),
+            receipt_cache: BTreeMap::new(),
+            replay_after: 0,
             requests: BTreeMap::new(),
             messages: BTreeMap::new(),
             outbox: BTreeMap::new(),

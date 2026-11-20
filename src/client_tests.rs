@@ -1,6 +1,6 @@
 use super::*;
 
-fn setup() -> Result<(tempfile::TempDir, Client, Client)> {
+pub(super) fn setup() -> Result<(tempfile::TempDir, Client, Client)> {
     let dir = tempfile::tempdir()?;
     let mut a = Client::create(&dir.path().join("a"), true)?;
     let mut b = Client::create(&dir.path().join("b"), true)?;
@@ -23,7 +23,7 @@ fn setup() -> Result<(tempfile::TempDir, Client, Client)> {
     )?;
     Ok((dir, a, b))
 }
-fn inject(a: &mut Client, b: &mut Client, plain: &[u8]) -> Result<()> {
+pub(super) fn inject(a: &mut Client, b: &mut Client, plain: &[u8]) -> Result<()> {
     let mut p = a.load()?;
     let peer = b.device()?.id;
     let packet = p.state.encrypt(&peer, plain, spora_core::now_ms())?;
@@ -123,14 +123,16 @@ fn full_database_commit_failure_leaves_no_outbox_or_crypto_changes() -> Result<(
         .pragma_query_value(None, "page_count", |r| r.get(0))?;
     a.conn.pragma_update(None, "max_page_count", pages)?;
     let before = a.status()?;
-    assert!(
-        a.send(
+    let err = a
+        .send(
             &new_id(),
             &[b.device()?.id],
-            &"x".repeat(8192),
-            spora_core::now_ms()
+            &"x".repeat(4096),
+            spora_core::now_ms(),
         )
-        .is_err()
+        .unwrap_err();
+    assert!(
+        matches!(err.downcast_ref::<rusqlite::Error>(),Some(rusqlite::Error::SqliteFailure(e,_)) if e.code==rusqlite::ErrorCode::DiskFull)
     );
     assert_eq!(a.status()?.revision, before.revision);
     assert_eq!(a.status()?.sessions, 0);

@@ -33,6 +33,19 @@ jobs:
           $env:SPORA_MEASURE_OUTPUT = "$PWD/sizes.json"
           cargo test --locked --lib measurements_real_signal_and_pq_updates -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Linux host-encrypted service credential
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          head -c 32 /dev/urandom | sudo systemd-creds encrypt --name=spora-wrapping-key --with-key=host - "$work/key.enc"
+          run_client() {
+            sudo systemd-run --quiet --pipe --wait --collect -p "User=$(id -un)" -p "LoadCredentialEncrypted=spora-wrapping-key:$work/key.enc" "$PWD/target/debug/spora-sec" --profile "$work/profile" "$@"
+          }
+          run_client init > /dev/null
+          run_client status | python3 -c 'import json,sys; assert not json.load(sys.stdin)["test_key"]'
+          if env -u CREDENTIALS_DIRECTORY target/debug/spora-sec --profile "$work/profile" status; then exit 1; fi
       - name: Two process TLS laboratory
         if: runner.os == 'Linux'
         shell: bash

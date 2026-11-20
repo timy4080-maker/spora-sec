@@ -4,11 +4,12 @@ use async_trait::async_trait;
 use libsignal_protocol::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use zeroize::Zeroizing;
 
 type R<T> = std::result::Result<T, SignalProtocolError>;
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct IdentityStore {
-    pub pair: Vec<u8>,
+    pub pair: Zeroizing<Vec<u8>>,
     pub registration: u32,
     pub trusted: BTreeMap<String, Vec<u8>>,
 }
@@ -51,7 +52,7 @@ impl IdentityKeyStore for IdentityStore {
     }
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
-pub(crate) struct Sessions(pub BTreeMap<String, Vec<u8>>);
+pub(crate) struct Sessions(pub BTreeMap<String, Zeroizing<Vec<u8>>>);
 #[async_trait(?Send)]
 impl SessionStore for Sessions {
     async fn load_session(&self, a: &ProtocolAddress) -> R<Option<SessionRecord>> {
@@ -61,12 +62,12 @@ impl SessionStore for Sessions {
             .transpose()
     }
     async fn store_session(&mut self, a: &ProtocolAddress, r: &SessionRecord) -> R<()> {
-        self.0.insert(a.to_string(), r.serialize()?);
+        self.0.insert(a.to_string(), r.serialize()?.into());
         Ok(())
     }
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
-pub(crate) struct PreKeys(pub BTreeMap<u32, Vec<u8>>);
+pub(crate) struct PreKeys(pub BTreeMap<u32, Zeroizing<Vec<u8>>>);
 #[async_trait(?Send)]
 impl PreKeyStore for PreKeys {
     async fn get_pre_key(&self, id: PreKeyId) -> R<PreKeyRecord> {
@@ -77,7 +78,7 @@ impl PreKeyStore for PreKeys {
         )
     }
     async fn save_pre_key(&mut self, id: PreKeyId, r: &PreKeyRecord) -> R<()> {
-        self.0.insert(id.into(), r.serialize()?);
+        self.0.insert(id.into(), r.serialize()?.into());
         Ok(())
     }
     async fn remove_pre_key(&mut self, id: PreKeyId) -> R<()> {
@@ -86,7 +87,7 @@ impl PreKeyStore for PreKeys {
     }
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
-pub(crate) struct SignedKeys(pub BTreeMap<u32, Vec<u8>>);
+pub(crate) struct SignedKeys(pub BTreeMap<u32, Zeroizing<Vec<u8>>>);
 #[async_trait(?Send)]
 impl SignedPreKeyStore for SignedKeys {
     async fn get_signed_pre_key(&self, id: SignedPreKeyId) -> R<SignedPreKeyRecord> {
@@ -97,12 +98,12 @@ impl SignedPreKeyStore for SignedKeys {
         )
     }
     async fn save_signed_pre_key(&mut self, id: SignedPreKeyId, r: &SignedPreKeyRecord) -> R<()> {
-        self.0.insert(id.into(), r.serialize()?);
+        self.0.insert(id.into(), r.serialize()?.into());
         Ok(())
     }
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
-pub(crate) struct KyberKeys(pub BTreeMap<u32, Vec<u8>>);
+pub(crate) struct KyberKeys(pub BTreeMap<u32, Zeroizing<Vec<u8>>>);
 #[async_trait(?Send)]
 impl KyberPreKeyStore for KyberKeys {
     async fn get_kyber_pre_key(&self, id: KyberPreKeyId) -> R<KyberPreKeyRecord> {
@@ -113,7 +114,7 @@ impl KyberPreKeyStore for KyberKeys {
         )
     }
     async fn save_kyber_pre_key(&mut self, id: KyberPreKeyId, r: &KyberPreKeyRecord) -> R<()> {
-        self.0.insert(id.into(), r.serialize()?);
+        self.0.insert(id.into(), r.serialize()?.into());
         Ok(())
     }
     async fn mark_kyber_pre_key_used(
@@ -141,11 +142,14 @@ pub(crate) struct SignalState {
 }
 impl SignalState {
     pub fn new() -> Self {
-        use rand::{Rng, TryRngCore};
-        let mut rng = rand::rngs::OsRng.unwrap_err();
+        use rand::Rng;
+        let mut rng = crate::vault::os_rng();
         Self {
             identity: IdentityStore {
-                pair: IdentityKeyPair::generate(&mut rng).serialize().to_vec(),
+                pair: IdentityKeyPair::generate(&mut rng)
+                    .serialize()
+                    .into_vec()
+                    .into(),
                 registration: rng.random_range(1..16380),
                 trusted: BTreeMap::new(),
             },
