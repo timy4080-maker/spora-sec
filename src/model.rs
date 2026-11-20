@@ -115,6 +115,7 @@ pub struct Invitation {
 }
 impl Invitation {
     pub(crate) fn signed_bytes(&self) -> Result<Vec<u8>> {
+        ensure!(self.version == 2, "unsupported invitation signing version");
         let b = &self.body;
         let mut e = minicbor::Encoder::new(Vec::new());
         e.array(15)?
@@ -134,7 +135,7 @@ impl Invitation {
             .bytes(&b.signed_signature)?
             .bytes(&b.kem_prekey)?
             .bytes(&b.kem_signature)?
-            .u32(2)?
+            .u8(self.version)?
             .array(b.routes.len() as u64)?;
         for secure in &b.routes {
             let r = &secure.route;
@@ -160,8 +161,36 @@ pub(crate) struct Peer {
     pub invitation: Invitation,
     pub conversation: String,
 }
+// A grant describes who received the write capability, not an authenticated message author.
+// A queue whose earlier grants are unknown can never become exclusive retroactively.
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub(crate) enum QueueGrant {
+    Fresh,
+    Exclusive(String),
+    #[default]
+    Shared,
+}
+impl QueueGrant {
+    pub(crate) fn issue(&mut self, recipient: &str) {
+        match self {
+            Self::Fresh => *self = Self::Exclusive(recipient.to_owned()),
+            Self::Exclusive(old) if old != recipient => *self = Self::Shared,
+            _ => {}
+        }
+    }
+    pub(crate) fn owner(&self) -> Option<&str> {
+        match self {
+            Self::Exclusive(id) => Some(id),
+            _ => None,
+        }
+    }
+}
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct LocalSource {
+    #[serde(default)]
+    pub grant: QueueGrant,
+    #[serde(default)]
+    pub quota_deferred: bool,
     pub source: Source,
     pub secure: SecureRoute,
     pub provision: spora_core::QueueCreate,
@@ -186,6 +215,8 @@ pub struct Outgoing {
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Incoming {
+    #[serde(default)]
+    pub quota_owner: Option<String>,
     pub source: String,
     pub entry: PageEntry,
     pub status: String,

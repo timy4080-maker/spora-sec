@@ -5,6 +5,22 @@ use libsignal_protocol::*;
 use spora_core::{new_id, valid_id};
 use std::time::SystemTime;
 
+// Both decryption and retention must agree on exactly which issued set this packet names.
+fn bound_prekey_id(m: &PreKeySignalMessage) -> Result<u32> {
+    let id = u32::from(
+        m.pre_key_id()
+            .ok_or_else(|| anyhow::anyhow!("one-time EC prekey required"))?,
+    );
+    ensure!(
+        m.kyber_pre_key_id().map(u32::from) == Some(id),
+        "prekey binding mismatch"
+    );
+    ensure!(
+        u32::from(m.signed_pre_key_id()) == id,
+        "signed prekey binding mismatch"
+    );
+    Ok(id)
+}
 impl State {
     #[cfg(test)]
     pub(crate) fn invite(
@@ -136,6 +152,13 @@ impl State {
             .private_key()
             .calculate_signature(&inv.signed_bytes()?, &mut rng)?
             .to_vec();
+        for queue in selected {
+            self.sources
+                .get_mut(&queue)
+                .expect("validated source")
+                .grant
+                .issue(for_fingerprint);
+        }
         self.invitations.insert(request.into(), inv.clone());
         Ok(inv)
     }
@@ -284,6 +307,33 @@ impl State {
             .encode()
         })
     }
+    fn issued_prekey(&self, message: &PreKeySignalMessage, peer: &InvitationBody) -> Result<u32> {
+        ensure!(
+            message.registration_id() == peer.registration,
+            "sender registration binding mismatch"
+        );
+        let id = bound_prekey_id(message)?;
+        ensure!(
+            self.crypto.owners.get(&id) == Some(&peer.device.fingerprint()),
+            "prekey issued for another identity"
+        );
+        Ok(id)
+    }
+    pub(crate) fn referenced_prekey(&self, item: &Incoming) -> Option<u32> {
+        let route = &self.sources.get(&item.source)?.secure;
+        let envelope = spora_core::from_b64(&item.entry.envelope_b64url).ok()?;
+        let packet = Packet::decode(&route.unwrap(&envelope).ok()?).ok()?;
+        if packet.to != self.device.id || packet.kind != 3 {
+            return None;
+        }
+        let message = PreKeySignalMessage::try_from(packet.ciphertext.as_slice()).ok()?;
+        // An unknown sender may still be paired later. Preserve only the named set in that case.
+        // A pinned set is a possible decoding dependency, never evidence of delivery or authorship.
+        match self.peers.get(&packet.from) {
+            Some(peer) => self.issued_prekey(&message, &peer.invitation.body).ok(),
+            None => bound_prekey_id(&message).ok(),
+        }
+    }
     pub(crate) fn decrypt(&mut self, packet: &[u8]) -> Result<(String, Vec<u8>)> {
         let packet = Packet::decode(packet)?;
         ensure!(packet.to == self.device.id, "wrong recipient");
@@ -299,25 +349,7 @@ impl State {
             )?),
             3 => {
                 let m = PreKeySignalMessage::try_from(packet.ciphertext.as_slice())?;
-                ensure!(
-                    m.registration_id() == b.registration,
-                    "sender registration binding mismatch"
-                );
-                let id = m
-                    .pre_key_id()
-                    .ok_or_else(|| anyhow::anyhow!("one-time EC prekey required"))?;
-                ensure!(
-                    m.kyber_pre_key_id().map(u32::from) == Some(u32::from(id)),
-                    "prekey binding mismatch"
-                );
-                ensure!(
-                    u32::from(m.signed_pre_key_id()) == u32::from(id),
-                    "signed prekey binding mismatch"
-                );
-                ensure!(
-                    self.crypto.owners.get(&u32::from(id)) == Some(&b.device.fingerprint()),
-                    "prekey issued for another identity"
-                );
+                self.issued_prekey(&m, b)?;
                 CiphertextMessage::PreKeySignalMessage(m)
             }
             _ => bail!("unsupported Signal message type"),
@@ -369,6 +401,8 @@ impl State {
         self.sources.insert(
             queue.clone(),
             LocalSource {
+                grant: QueueGrant::Fresh,
+                quota_deferred: false,
                 source,
                 secure: SecureRoute {
                     route,

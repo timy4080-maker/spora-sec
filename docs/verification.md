@@ -4,7 +4,9 @@
 
 ## Покрытие
 
-28 Rust-тестов на Windows (27 на Linux, где нет DPAPI): независимые устройства/сессии и маршруты, recipient offline, сериализация/reopen, process exit до/после COMMIT, CAS stale plan и другой профиль, SQLITE_FULL, потерянный PUT/consume response, outage/backoff после restart, retry-after и остановка после 16 ошибок, повтор request, переупорядочение, изоляция источника с конфликтным replay, invitation tampering/fingerprint/suite/device binding, prekey ownership, неизвестная identity, bad inner ciphertext, replay, неверный route AAD, rejected application с обязательным сохранением ratchet/prekeys, отсутствие ложного receipt/dedup reservation, защита БД/WAL от plaintext, отсутствующая/заменённая KEK и DPAPI round-trip.
+31 Rust-тест на Windows (30 на Linux, где нет DPAPI): независимые устройства/сессии и маршруты, recipient offline, сериализация/reopen, process exit до/после COMMIT, CAS stale plan и другой профиль, SQLITE_FULL, потерянный PUT/consume response, outage/backoff после restart, retry-after и остановка после 16 ошибок, повтор request, переупорядочение, изоляция источника с конфликтным replay, invitation tampering/fingerprint/suite/device binding, prekey ownership, неизвестная identity, bad inner ciphertext, replay, неверный route AAD, rejected application с обязательным сохранением ratchet/prekeys, отсутствие ложного receipt/dedup reservation, защита БД/WAL от plaintext, отсутствующая/заменённая KEK и DPAPI round-trip.
+
+Проверки квот карантина, адресного удержания prekeys и версии CBOR описаны в [повторном ревью](review-ad707a1.md).
 
 Граничные пробы, upgrade и привязка к AC описаны в [ответе на ревью](review-69cc002.md).
 
