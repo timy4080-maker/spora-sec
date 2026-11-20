@@ -188,7 +188,23 @@ fn lost_responses_network_outage_and_retry_keep_exact_ciphertext() -> Result<()>
     let peers = vec![b.device()?.id];
     let id = a.send(&request, &peers, "retry", lab.now)?;
     let before = serde_json::to_vec(&a.outgoing()?[0].put)?;
-    assert_eq!(id, a.send(&request, &peers, "retry", lab.now)?);
+    for _ in 0..100 {
+        assert_eq!(id, a.send(&request, &peers, "retry", lab.now)?);
+    }
+    let job = a.outgoing()?.remove(0);
+    let receipt = lab.put(&job.route.route, &job.delivery_id, &job.put, lab.now)?;
+    for _ in 0..100 {
+        assert_eq!(
+            lab.put(&job.route.route, &job.delivery_id, &job.put, lab.now)?,
+            receipt
+        );
+    }
+    let mut altered = job.put.clone();
+    altered.expires_at_ms -= 1;
+    assert!(
+        lab.put(&job.route.route, &job.delivery_id, &altered, lab.now)
+            .is_err()
+    );
     assert!(a.send(&request, &peers, "different", lab.now).is_err());
     lab.lose_put.set(true);
     assert_eq!(a.dispatch(&lab, lab.now)?, 0);
@@ -201,7 +217,7 @@ fn lost_responses_network_outage_and_retry_keep_exact_ciphertext() -> Result<()>
     drop(b);
     let mut b = lab.reopen("b")?;
     lab.offline.set(false);
-    assert_eq!(b.fetch(&lab, lab.now + 1)?, 0);
+    assert_eq!(b.fetch(&lab, lab.now - 1)?, 0);
     assert_eq!(b.fetch(&lab, lab.now + 3000)?, 1);
     lab.lose_consume.set(true);
     assert_eq!(b.consume(&lab, lab.now + 3000)?, 0);
@@ -536,5 +552,36 @@ fn retry_after_and_budget_are_persisted_and_require_explicit_operator_retry() ->
     a.retry_attention()?;
     a.dispatch(&t, lab.now + 18 * 300000)?;
     assert_eq!(t.0.get(), 17);
+    Ok(())
+}
+
+#[test]
+fn durable_tx1_and_tx2_survive_exit_while_relay_still_holds_copy() -> Result<()> {
+    let lab = Lab::new()?;
+    let mut a = lab.client("a", 1)?;
+    let mut b = lab.client("b", 1)?;
+    lab.pair(&mut a, &mut b, &new_id())?;
+    a.send(&new_id(), &[b.device()?.id], "AC-05 restart", lab.now)?;
+    a.dispatch(&lab, lab.now)?;
+    b.fetch(&lab, lab.now)?;
+    drop(b);
+    for (point, expected, count) in [("before_commit", 86, 0), ("after_commit", 87, 1)] {
+        let result = Command::new(env!("CARGO_BIN_EXE_spora-sec"))
+            .arg("--profile")
+            .arg(lab.dir.path().join("b"))
+            .args(["--allow-test-key", "apply"])
+            .env("SPORA_SEC_TEST_CRASH", point)
+            .output()?;
+        assert_eq!(result.status.code(), Some(expected));
+        let b = lab.reopen("b")?;
+        let status = b.status()?;
+        assert_eq!(status.pending_consumption, 1);
+        assert_eq!(status.message_count, count);
+        assert_eq!(status.pending_receipts, count);
+    }
+    let mut b = lab.reopen("b")?;
+    assert_eq!(b.apply(lab.now)?, 0);
+    assert_eq!(b.prepare_receipts(lab.now)?, 1);
+    assert_eq!(b.consume(&lab, lab.now)?, 1);
     Ok(())
 }

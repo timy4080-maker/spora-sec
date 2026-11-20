@@ -10,3 +10,6 @@ pub mod transport;
 pub use model::{Device, Invitation, InvitationBody, LocalMessage, Outgoing, SecureRoute};
 #[cfg(test)]
 mod crypto_tests;
+
+mod retention;
+mod storage;

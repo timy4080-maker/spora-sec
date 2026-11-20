@@ -1,6 +1,6 @@
 # Пакет внешнего security review
 
-**Статус: PENDING. M2 OPEN.** Владелец явно требует ревью внешним специалистом. В этой сессии внешний специалист не привлекался и заключение не получено. Самопроверка реализации, тесты и анализ upstream API не подменяют это требование.
+**Статус: PENDING. M2 OPEN.** Владелец явно требует ревью внешним специалистом. Получено статическое ревью коммита `69cc002`. Автор указал, что тесты не запускал. Исправления и границы покрытия описаны в [ответе на ревью](review-69cc002.md). Для приёмки ожидается заключение специалиста по исправленной версии. Самопроверка реализации, тесты и анализ upstream API не подменяют это требование.
 
 ## Что передать reviewer
 
@@ -10,7 +10,7 @@
 |---|---|---|
 | Bootstrap/authentication | src/model.rs, src/provider.rs | Signature domain/encoding, explicit OOB fingerprint, recipient targeting, identity/device/generation/route binding, prekey ownership and single use, invitation replay/expiry |
 | Library port | src/signal.rs, src/provider.rs | Все callbacks/archived sessions, strict trust, EC/PQ deletion, clone staging, failed decrypt, simultaneous initiation, version downgrade |
-| Atomicity | src/client.rs | Global read/write CAS, request idempotency, multi-device all-or-nothing, no library mutation outside plan, failure/SQLITE_FULL, two-process contention |
+| Atomicity | src/client.rs, src/storage.rs, src/retention.rs | Global read/write CAS, request idempotency, multi-device all-or-nothing, no library mutation outside plan, failure/SQLITE_FULL, two-process contention |
 | Receive/delivery | src/client.rs, src/transport.rs | TX1 before consume, TX2 before receipt, crypto-valid/application-invalid, replay bounds, source binding, malformed Relay response, permanent vs retryable failures |
 | Crypto wrappers/storage | src/vault.rs, src/model.rs | AEAD contexts, nonce source, DPAPI and key lifecycle, file creation, plaintext in WAL/logs, memory copies, source queue exposure |
 | Operations | src/main.rs, scripts/internet_lab.py | CLI secret handling, TLS roots/redirect/proxy policy, network limits, dependency/build supply chain, test-only isolation |
@@ -25,10 +25,10 @@
 
 - Invitation protocol и route wrapper — новая интеграционная поверхность поверх библиотеки, не часть аудита Signal.
 - Upstream Rust API не имеет гарантий стабильности для стороннего клиента. Dependency advisories и релизные изменения должны быть отдельно проверены на дату внешнего ревью; cargo-audit в этой сессии не заявляется выполненным.
-- Global encrypted snapshot даёт простой CAS, но увеличивает write amplification/размер WAL. Лимит 32 MiB требует operator action; eviction запрещён.
+- Проверить миграцию v1, аутентифицированный манифест, CAS всех изменённых записей и правила GC. На каждую операцию клиент по-прежнему читает весь профиль.
 - Старые sessions/prekeys хранятся в рамках upstream и профильного лимита. Automatic refresh/rotation/revocation отсутствует. Unacknowledged session может перестать отправлять по upstream policy; это ошибка с сохранением исходных данных, не повод сбрасывать identity.
 - SEC-02: нет полного anti-rollback/clone witness. AAD revision защищает от несогласованной правки, а не от возврата старого согласованного состояния. Восстановление как live session запрещено.
-- Production Linux keystore, безопасный пользовательский ввод, публичный multi-host deployment, load/DoS/fuzz campaigns и радио остаются отдельными задачами. Лабораторный plaintext test key допускается только явно.
+- Подбор и эксплуатация хранилища ключей на целевом OpenWrt, безопасный пользовательский ввод, публичный multi-host deployment, load/DoS/fuzz campaigns и радио остаются отдельными задачами. Лабораторный plaintext test key допускается только явно.
 - У предыдущих first-party компонентов Spora не объявлены LICENSE. Нужно отдельное решение владельца до распространения объединённого продукта; этот репозиторий не меняет их лицензии.
 
 ## Условия принятия M2

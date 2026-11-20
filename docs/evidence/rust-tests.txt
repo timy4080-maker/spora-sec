@@ -1,28 +1,35 @@
    Compiling spora-sec v0.1.0 (C:\projects\spora-sec)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.35s
-     Running unittests src\lib.rs (target\debug\build\spora-sec/6dfc38cc049f640d\out\spora_sec-6dfc38cc049f640d.exe)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.58s
+     Running unittests src\lib.rs (target\debug\build\spora-sec/51ab8584a0641f0a\out\spora_sec-51ab8584a0641f0a.exe)
 
-running 8 tests
+running 15 tests
+test client::review_tests::bootstrap_bytes_match_independent_cbor_vector ... ok
 test crypto_tests::route_wrapping_is_independent_and_context_bound ... ok
 test crypto_tests::authenticated_wrapper_does_not_hide_invalid_signal_ciphertext_or_identity ... ok
-test client::tests::prepared_plan_from_other_profile_is_rejected ... ok
 test crypto_tests::simultaneous_initiation_device_binding_and_prekey_ownership ... ok
+test client::tests::prepared_plan_from_other_profile_is_rejected ... ok
 test client::tests::full_database_commit_failure_leaves_no_outbox_or_crypto_changes ... ok
+test client::review_tests::invitations_require_recipient_specific_route_selection_when_over_four ... ok
+test client::review_tests::unchanged_records_survive_cas_replanning_and_cross_record_substitution_fails ... ok
 test client::tests::crypto_valid_application_invalid_commits_ratchet_and_prekey_deletion ... ok
+test client::review_tests::legacy_state_migrates_without_resetting_live_identity_ratchet_or_sequence ... ok
 test client::tests::wrong_receipt_and_application_device_binding_do_not_reserve_message_id ... ok
+test client::review_tests::duplicate_after_restart_rearms_exact_live_receipt_once ... ok
+test client::review_tests::utf8_limits_and_clock_tolerance_apply_in_both_directions ... ok
 test crypto_tests::measurements_real_signal_and_pq_updates ... ok
+test client::review_tests::admission_stops_new_jobs_and_gc_reopens_capacity_preserving_unresolved_input ... ok
 
-test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.65s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.34s
 
-     Running unittests src\main.rs (target\debug\build\spora-sec/5e1d7d0e406b73ea\out\spora_sec-5e1d7d0e406b73ea.exe)
+     Running unittests src\main.rs (target\debug\build\spora-sec/c4fd185ba23df759\out\spora_sec-c4fd185ba23df759.exe)
 
 running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-     Running tests\integration.rs (target\debug\build\spora-sec/d48377f88443f1d9\out\integration-d48377f88443f1d9.exe)
+     Running tests\integration.rs (target\debug\build\spora-sec/f2148b3842a11624\out\integration-f2148b3842a11624.exe)
 
-running 12 tests
+running 13 tests
 test windows_dpapi_key_round_trip_and_refusal_of_overwrite ... ok
 test key_missing_key_swapped_corrupt_database_never_reinitialize ... ok
 test tampered_invitation_wrong_fingerprint_wrong_device_and_suite_fail_closed ... ok
@@ -30,13 +37,14 @@ test database_and_wal_do_not_contain_message_plaintext ... ok
 test stale_plan_cannot_commit_even_after_read_only_trust_change ... ok
 test tampered_ciphertext_is_durable_quarantine_without_ratchet_or_receipt ... ok
 test actual_process_crash_before_and_after_atomic_commit ... ok
-test lost_responses_network_outage_and_retry_keep_exact_ciphertext ... ok
+test durable_tx1_and_tx2_survive_exit_while_relay_still_holds_copy ... ok
 test conflicting_replay_blocks_only_its_source_without_losing_other_route ... ok
 test reverse_delivery_and_duplicate_requests_preserve_messages ... ok
 test retry_after_and_budget_are_persisted_and_require_explicit_operator_retry ... ok
 test offline_two_devices_two_relays_restarts_and_end_to_end_receipts ... ok
+test lost_responses_network_outage_and_retry_keep_exact_ciphertext ... ok
 
-test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.56s
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.82s
 
    Doc-tests spora_sec
 

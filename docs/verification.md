@@ -1,10 +1,12 @@
-# Проверка SEC-01, 16 ноября 2026
+# Проверка SEC-01, 20 ноября 2026
 
 Локально пройдены Rust tests, fmt и clippy с `-D warnings`, а также отдельный TLS-стенд. Полные результаты в [rust-tests.txt](evidence/rust-tests.txt), [tls-lab.json](evidence/tls-lab.json), [sizes.json](evidence/sizes.json). GitHub Actions дополнительно проверяет Ubuntu и Windows MSVC; конкретный remote run нужно сверять по Actions, наличие workflow само по себе не означает успешного CI.
 
 ## Покрытие
 
-20 Rust-тестов на Windows (19 на Linux, где нет DPAPI): независимые устройства/сессии и маршруты, recipient offline, сериализация/reopen, process exit до/после COMMIT, CAS stale plan и другой профиль, SQLITE_FULL, потерянный PUT/consume response, outage/backoff после restart, retry-after и остановка после 16 ошибок, повтор request, переупорядочение, изоляция источника с конфликтным replay, invitation tampering/fingerprint/suite/device binding, prekey ownership, неизвестная identity, bad inner ciphertext, replay, неверный route AAD, rejected application с обязательным сохранением ratchet/prekeys, отсутствие ложного receipt/dedup reservation, защита БД/WAL от plaintext, отсутствующая/заменённая KEK и DPAPI round-trip.
+28 Rust-тестов на Windows (27 на Linux, где нет DPAPI): независимые устройства/сессии и маршруты, recipient offline, сериализация/reopen, process exit до/после COMMIT, CAS stale plan и другой профиль, SQLITE_FULL, потерянный PUT/consume response, outage/backoff после restart, retry-after и остановка после 16 ошибок, повтор request, переупорядочение, изоляция источника с конфликтным replay, invitation tampering/fingerprint/suite/device binding, prekey ownership, неизвестная identity, bad inner ciphertext, replay, неверный route AAD, rejected application с обязательным сохранением ratchet/prekeys, отсутствие ложного receipt/dedup reservation, защита БД/WAL от plaintext, отсутствующая/заменённая KEK и DPAPI round-trip.
+
+Граничные пробы, upgrade и привязка к AC описаны в [ответе на ревью](review-69cc002.md).
 
 Интеграционные тесты используют настоящий Store из закреплённого spora-relay. Fault transport только теряет ответы/отключает доступ; E2EE выполняет libsignal. Отдельный Python-стенд использует настоящие процессы Relay и HTTP/TLS adapter, три client profiles, две очереди на устройство, kill/restart и применение после удаления серверных копий. Все временные секреты удаляются; evidence содержит только счётчики и размеры.
 
