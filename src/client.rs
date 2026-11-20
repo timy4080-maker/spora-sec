@@ -40,6 +40,7 @@ pub struct Status {
     pub pending_inbox: usize,
     pub quarantined: usize,
     pub pending_consumption: usize,
+    pub quota_deferred_sources: usize,
     pub pending_receipts: usize,
     pub message_count: usize,
     pub processed_receipts: usize,
@@ -269,6 +270,7 @@ impl Client {
                 .filter(|j| !j.relay_stored || j.replay_pending)
                 .count(),
             relay_stored: s.outbox.values().filter(|j| j.relay_stored).count(),
+            quota_deferred_sources: s.sources.values().filter(|s| s.quota_deferred).count(),
             pending_inbox: s.inbox.values().filter(|j| j.status == "pending").count(),
             quarantined: s
                 .inbox
@@ -322,7 +324,7 @@ impl Client {
                 serde_json::json!({
                     "queue_id":s.source.queue_id,"service_id":s.source.service_id,
                     "endpoint":s.source.endpoint,"generation":s.source.generation,
-                    "cursor":s.cursor,"attention":s.attention,"next_attempt_ms":s.next_attempt_ms
+                    "cursor":s.cursor,"quota_deferred":s.quota_deferred,"attention":s.attention,"next_attempt_ms":s.next_attempt_ms
                 })
             })
             .collect())
@@ -505,6 +507,7 @@ impl Client {
             .collect();
         let mut count = 0;
         for source in sources {
+            let limit = if source.quota_deferred { 1 } else { limit };
             let mut page = transport.fetch(&source.source, source.cursor, limit, now);
             if let Ok(p) = &page
                 && (p.items.len() > limit || validate_page(&source, p, now).is_err())
@@ -539,6 +542,12 @@ impl Client {
                                 local.attention = Some("CONFLICTING_REPLAY".into());
                                 return Ok(0);
                             }
+                            if !crate::retention::admits_unresolved(&s.inbox, local, &page) {
+                                local.quota_deferred = true;
+                                local.next_attempt_ms = now.saturating_add(1000);
+                                return Ok(0);
+                            }
+                            local.quota_deferred = false;
                             local.cursor = page.next_after.parse()?;
                             local.failures = 0;
                             local.next_attempt_ms = 0;
@@ -549,6 +558,7 @@ impl Client {
                                     s.inbox.entry(key)
                                 {
                                     v.insert(Incoming {
+                                        quota_owner: local.grant.owner().map(str::to_owned),
                                         source: source.source.queue_id.clone(),
                                         entry: entry.clone(),
                                         status: "pending".into(),
@@ -872,7 +882,7 @@ impl State {
         Ok(())
     }
 }
-fn inbox_key(queue: &str, delivery: &str) -> String {
+pub(crate) fn inbox_key(queue: &str, delivery: &str) -> String {
     format!("{queue}:{delivery}")
 }
 fn retry_at(now: i64, attempts: u32, error: Option<&spora_core::Error>) -> i64 {

@@ -27,6 +27,7 @@
     "pending_inbox": 0,
     "quarantined": 0,
     "pending_consumption": 0,
+    "quota_deferred_sources": 0,
     "pending_receipts": 0,
     "message_count": 1,
     "processed_receipts": 2,

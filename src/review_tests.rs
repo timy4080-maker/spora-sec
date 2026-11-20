@@ -194,7 +194,7 @@ fn duplicate_after_restart_rearms_exact_live_receipt_once() -> Result<()> {
 fn bootstrap_bytes_match_independent_cbor_vector() -> Result<()> {
     let fixture: serde_json::Value =
         serde_json::from_str(include_str!("../tests/fixtures/bootstrap-v2.json"))?;
-    let inv: Invitation = serde_json::from_value(fixture["invitation"].clone())?;
+    let mut inv: Invitation = serde_json::from_value(fixture["invitation"].clone())?;
     assert_eq!(
         inv.body.device.fingerprint(),
         fixture["fingerprint"].as_str().unwrap()
@@ -203,6 +203,14 @@ fn bootstrap_bytes_match_independent_cbor_vector() -> Result<()> {
         hex::encode(inv.signed_bytes()?),
         fixture["signed_cbor_hex"].as_str().unwrap()
     );
+    for version in [0, 1, 3, u8::MAX] {
+        inv.version = version;
+        assert!(inv.signed_bytes().is_err());
+    }
+    let mut missing = fixture["invitation"].clone();
+    missing.as_object_mut().unwrap().remove("version");
+    let legacy: Invitation = serde_json::from_value(missing)?;
+    assert!(legacy.signed_bytes().is_err());
     Ok(())
 }
 
@@ -223,5 +231,115 @@ fn invitations_require_recipient_specific_route_selection_when_over_four() -> Re
     assert_eq!(inv.body.routes.len(), 1);
     assert_eq!(inv.body.routes[0].route.queue_id, selected[0]);
     assert!(a.invite_routes(&req, &fp, now, &selected[1..]).is_err());
+    Ok(())
+}
+
+#[test]
+fn old_prekeys_are_retained_only_for_matching_unresolved_work() -> Result<()> {
+    let (dir, mut a, mut b) = setup()?;
+    let now = spora_core::now_ms();
+    let unrelated = b
+        .invite(&new_id(), &digest(b"unrelated recipient"), now)?
+        .body
+        .key_id;
+    inject(&mut a, &mut b, b"pending application bytes")?;
+    let state = b.load()?.state;
+    let item = state.inbox.values().next().unwrap();
+    let needed = state.referenced_prekey(item).unwrap();
+    assert_ne!(needed, unrelated);
+    b.modify(|s| {
+        let mut retained = item.clone();
+        retained.entry.envelope_b64url = to_b64(b"unrecognized wrapper");
+        retained.status = "quarantined".into();
+        s.inbox.insert("retained-fixture".into(), retained);
+        Ok(())
+    })?;
+    let late = now + 60 * 86_400_000;
+    b.gc(late, true)?;
+    drop(b);
+    let mut b = Client::open(&dir.path().join("b"), true)?;
+    let state = b.load()?.state;
+    assert_eq!(state.inbox.len(), 2);
+    assert_eq!(state.invitations.len(), 1);
+    assert!(state.crypto.prekeys.0.contains_key(&needed));
+    assert!(!state.crypto.signed.0.contains_key(&unrelated));
+    assert!(!state.crypto.kyber.0.contains_key(&unrelated));
+    // libsignal can still process the retained item. Its application body is intentionally invalid.
+    assert_eq!(b.apply(late)?, 0);
+    assert_eq!(b.status()?.sessions, 1);
+    assert_eq!(b.status()?.pending_receipts, 0);
+    b.gc(late, true)?;
+    let state = b.load()?.state;
+    assert!(state.invitations.is_empty());
+    assert!(state.crypto.owners.is_empty());
+    assert_eq!(state.inbox["retained-fixture"].status, "quarantined");
+    Ok(())
+}
+
+#[test]
+fn shared_and_legacy_queues_keep_a_separate_bounded_reservation() -> Result<()> {
+    use crate::model::QueueGrant;
+    use crate::retention::admits_unresolved;
+    let (_dir, mut a, mut b) = setup()?;
+    inject(&mut a, &mut b, b"test fixture")?;
+    let mut state = b.load()?.state;
+    let entry = state.inbox.values().next().unwrap().clone();
+    let mut source = state.sources[&entry.source].clone();
+    let mut legacy = serde_json::to_value(&source)?;
+    legacy.as_object_mut().unwrap().remove("grant");
+    source = serde_json::from_value(legacy)?;
+    source.grant.issue("next-recipient");
+    assert_eq!(source.grant, QueueGrant::Shared);
+    let make_page = |id: &str| {
+        let mut new_entry = entry.entry.clone();
+        new_entry.receipt.delivery_id = new_id();
+        MessagePage {
+            queue_id: id.into(),
+            generation: source.source.generation.clone(),
+            next_after: "2".into(),
+            has_more: false,
+            items: vec![new_entry],
+        }
+    };
+    let page = make_page(&entry.source);
+    state.inbox.clear();
+    for n in 0..256 {
+        let mut job = entry.clone();
+        job.quota_owner = None;
+        job.status = "quarantined".into();
+        if n >= 64 {
+            job.source = format!("other-{}", n / 64);
+        }
+        state.inbox.insert(n.to_string(), job);
+        if n == 63 {
+            assert!(!admits_unresolved(&state.inbox, &source, &page));
+        }
+    }
+    source.source.queue_id = new_id();
+    assert!(!admits_unresolved(
+        &state.inbox,
+        &source,
+        &make_page(&source.source.queue_id)
+    ));
+    source.grant = QueueGrant::Exclusive("dedicated".into());
+    assert!(admits_unresolved(
+        &state.inbox,
+        &source,
+        &make_page(&source.source.queue_id)
+    ));
+    source.grant.issue("dedicated");
+    assert_eq!(source.grant.owner(), Some("dedicated"));
+    // A second queue issued to the same fingerprint shares the reservation across routes.
+    for job in state.inbox.values_mut().take(128) {
+        job.quota_owner = Some("dedicated".into());
+    }
+    assert!(!admits_unresolved(
+        &state.inbox,
+        &source,
+        &make_page(&source.source.queue_id)
+    ));
+    source.grant.issue("additional recipient");
+    source.grant.issue("dedicated");
+    assert_eq!(source.grant, QueueGrant::Shared);
     Ok(())
 }

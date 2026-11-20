@@ -46,6 +46,7 @@ pub(super) fn inject(a: &mut Client, b: &mut Client, plain: &[u8]) -> Result<()>
         s.inbox.insert(
             inbox_key(&source, &delivery),
             Incoming {
+                quota_owner: local.grant.owner().map(str::to_owned),
                 source,
                 entry: PageEntry {
                     receipt: r,

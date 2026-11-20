@@ -585,3 +585,91 @@ fn durable_tx1_and_tx2_survive_exit_while_relay_still_holds_copy() -> Result<()>
     assert_eq!(b.consume(&lab, lab.now)?, 1);
     Ok(())
 }
+
+#[test]
+fn quota_defers_one_relay_page_across_restart_and_another_peer_still_applies() -> Result<()> {
+    let lab = Lab::new()?;
+    let mut receiver = lab.client("receiver", 2)?;
+    let mut sender = lab.client("sender", 1)?;
+    let queues: Vec<_> = receiver
+        .queues()?
+        .iter()
+        .map(|q| q["queue_id"].as_str().unwrap().to_owned())
+        .collect();
+    let load_route = receiver
+        .invite_routes(&new_id(), &digest(b"load fixture"), lab.now, &queues[..1])?
+        .body
+        .routes
+        .remove(0)
+        .route;
+    let receiver_fp = receiver.device()?.fingerprint();
+    let sender_fp = sender.device()?.fingerprint();
+    let to_sender = receiver.invite_routes(&new_id(), &sender_fp, lab.now, &queues[1..])?;
+    let from_sender = sender.invite(&new_id(), &receiver_fp, lab.now)?;
+    let conversation = new_id();
+    sender.import(to_sender, &receiver_fp, &conversation, lab.now)?;
+    receiver.import(from_sender, &sender_fp, &conversation, lab.now)?;
+
+    let sample = |size: usize| {
+        let bytes = vec![0x31; size];
+        MessagePut {
+            generation: load_route.generation.clone(),
+            envelope_sha256: digest(&bytes),
+            envelope_b64url: to_b64(&bytes),
+            expires_at_ms: lab.now + RETENTION_MS,
+        }
+    };
+    for _ in 0..11 {
+        lab.put(&load_route, &new_id(), &sample(MAX_ENVELOPE), lab.now)?;
+    }
+    assert_eq!(receiver.fetch(&lab, lab.now)?, 11);
+    assert_eq!(receiver.apply(lab.now)?, 0);
+    assert_eq!(receiver.consume(&lab, lab.now)?, 11);
+    let first = new_id();
+    let second = new_id();
+    let medium = sample(32000);
+    lab.put(&load_route, &first, &medium, lab.now)?;
+    lab.put(&load_route, &second, &medium, lab.now)?;
+    sender.send(
+        &new_id(),
+        &[receiver.device()?.id],
+        "healthy independent source",
+        lab.now,
+    )?;
+    assert_eq!(sender.dispatch(&lab, lab.now)?, 1);
+    assert_eq!(receiver.fetch(&lab, lab.now)?, 1);
+    assert_eq!(receiver.status()?.quota_deferred_sources, 1);
+    let cursor = |c: &Client| -> Result<u64> {
+        let qs = c.queues()?;
+        Ok(qs
+            .iter()
+            .find(|q| q["queue_id"] == load_route.queue_id)
+            .unwrap()["cursor"]
+            .as_u64()
+            .unwrap())
+    };
+    assert_eq!(cursor(&receiver)?, 11);
+    assert_eq!(receiver.consume(&lab, lab.now)?, 1);
+    assert_eq!(receiver.apply(lab.now)?, 1);
+    assert_eq!(receiver.status()?.quarantined, 11);
+    let relay_state = |id: &str| -> Result<String> {
+        let (_, result) = lab.stores[&load_route.service_id].borrow_mut().put(
+            &load_route.queue_id,
+            id,
+            &load_route.write_token,
+            &medium,
+            lab.now,
+        )?;
+        Ok(serde_json::to_value(result.state)?.as_str().unwrap().into())
+    };
+    assert_eq!(relay_state(&first)?, "stored");
+    assert_eq!(relay_state(&second)?, "stored");
+    drop(receiver);
+    let mut receiver = lab.reopen("receiver")?;
+    assert_eq!(receiver.fetch(&lab, lab.now + 1000)?, 1);
+    assert_eq!(cursor(&receiver)?, 12);
+    assert_eq!(receiver.consume(&lab, lab.now + 1000)?, 1);
+    assert_eq!(relay_state(&first)?, "consumed");
+    assert_eq!(relay_state(&second)?, "stored");
+    Ok(())
+}
